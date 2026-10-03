@@ -3,6 +3,27 @@
 [Telegram](https://telegram.org) is a messaging app with a focus on speed and security. It’s superfast, simple and free.
 This repo contains the official source code for [Telegram App for Android](https://play.google.com/store/apps/details?id=org.telegram.messenger).
 
+## Self-hosted (private) server
+
+This fork can be pointed at a self-hosted MTProto server instead of the
+production Telegram datacenters.
+
+On the phone-number login step tap **Private server settings** and enter:
+
+* the server IP address (or host name),
+* the MTProto port (the standalone Rust server defaults to `24443`),
+* the server's RSA public key in PEM form (`-----BEGIN RSA PUBLIC KEY-----`
+  or `-----BEGIN PUBLIC KEY-----`).
+
+Save to apply. The app re-points every datacenter at that endpoint, keeps the
+configured key as the only trusted server key and drops cached auth keys so
+the handshake is redone. **Clear** restores the built-in production
+datacenters. The settings survive restarts.
+
+The server side of this pair is
+[vincent-163/telegram-server](https://github.com/vincent-163/telegram-server),
+whose `/server-key` endpoint prints exactly the PEM to paste here.
+
 ## Creating your Telegram Application
 
 We welcome all developers to use our API and source code to create applications on our platform.
