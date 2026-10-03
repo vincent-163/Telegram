@@ -265,6 +265,7 @@ public class ConnectionsManager extends BaseController {
         if (getUserConfig().getCurrentUser() != null) {
             userPremium = getUserConfig().getCurrentUser().premium;
         }
+        native_setPrivateServer(currentAccount, SharedConfig.privateServerEnabled, SharedConfig.privateServerAddress, SharedConfig.privateServerPort, SharedConfig.privateServerPublicKey);
         init(SharedConfig.buildVersion(), TLRPC.LAYER, BuildVars.APP_ID, deviceModel, systemVersion, appVersion, langCode, systemLangCode, configPath, FileLog.getNetworkLogPath(), pushString, fingerprint, timezoneOffset, getUserConfig().getClientUserId(), userPremium, enablePushConnection);
     }
 
@@ -604,6 +605,10 @@ public class ConnectionsManager extends BaseController {
 
     public void applyDatacenterAddress(int datacenterId, String ipAddress, int port) {
         native_applyDatacenterAddress(currentAccount, datacenterId, ipAddress, port);
+    }
+
+    public void applyPrivateServer() {
+        native_setPrivateServer(currentAccount, SharedConfig.privateServerEnabled, SharedConfig.privateServerAddress, SharedConfig.privateServerPort, SharedConfig.privateServerPublicKey);
     }
 
     public int getConnectionState() {
@@ -1002,6 +1007,7 @@ public class ConnectionsManager extends BaseController {
     public static native void native_cancelRequestsForGuid(int currentAccount, int guid);
     public static native void native_bindRequestToGuid(int currentAccount, int requestToken, int guid);
     public static native void native_applyDatacenterAddress(int currentAccount, int datacenterId, String ipAddress, int port);
+    public static native void native_setPrivateServer(int currentAccount, boolean enabled, String address, int port, String publicKey);
     public static native int native_getConnectionState(int currentAccount);
     public static native void native_setUserId(int currentAccount, long id);
     public static native void native_init(int currentAccount, int version, int layer, int apiId, String deviceModel, String systemVersion, String appVersion, String langCode, String systemLangCode, String configPath, String logPath, String regId, String cFingerprint, String installer, String packageId, int timezoneOffset, long userId, boolean userPremium, boolean enablePushConnection, boolean hasNetwork, int networkType, int performanceClass);

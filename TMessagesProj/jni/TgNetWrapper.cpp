@@ -223,6 +223,21 @@ void applyDatacenterAddress(JNIEnv *env, jclass c, jint instanceNum, jint datace
     }
 }
 
+void setPrivateServer(JNIEnv *env, jclass c, jint instanceNum, jboolean enabled, jstring address, jint port, jstring publicKey) {
+    const char *addressStr = address != nullptr ? env->GetStringUTFChars(address, 0) : nullptr;
+    const char *publicKeyStr = publicKey != nullptr ? env->GetStringUTFChars(publicKey, 0) : nullptr;
+    const auto validPort = port > 0 && port <= 65535 ? (uint16_t) port : 0;
+
+    ConnectionsManager::getInstance(instanceNum).setPrivateServer(enabled, addressStr != nullptr ? addressStr : "", validPort, publicKeyStr != nullptr ? publicKeyStr : "");
+
+    if (addressStr != nullptr) {
+        env->ReleaseStringUTFChars(address, addressStr);
+    }
+    if (publicKeyStr != nullptr) {
+        env->ReleaseStringUTFChars(publicKey, publicKeyStr);
+    }
+}
+
 void setProxySettings(JNIEnv *env, jclass c, jint instanceNum, jstring address, jint port, jstring username, jstring password, jstring secret) {
     const char *addressStr = env->GetStringUTFChars(address, 0);
     const char *usernameStr = env->GetStringUTFChars(username, 0);
@@ -536,6 +551,7 @@ static JNINativeMethod ConnectionsManagerMethods[] = {
         {"native_cancelRequestsForGuid", "(II)V", (void *) cancelRequestsForGuid},
         {"native_bindRequestToGuid", "(III)V", (void *) bindRequestToGuid},
         {"native_applyDatacenterAddress", "(IILjava/lang/String;I)V", (void *) applyDatacenterAddress},
+        {"native_setPrivateServer", "(IZLjava/lang/String;ILjava/lang/String;)V", (void *) setPrivateServer},
         {"native_setProxySettings", "(ILjava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;)V", (void *) setProxySettings},
         {"native_getConnectionState", "(I)I", (void *) getConnectionState},
         {"native_setUserId", "(IJ)V", (void *) setUserId},

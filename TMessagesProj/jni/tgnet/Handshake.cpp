@@ -324,6 +324,80 @@ void Handshake::cleanupServerKeys() {
     serverPublicKeysFingerprints.clear();
 }
 
+uint64_t Handshake::computeRsaKeyFingerprint(const std::string &publicKey) {
+    BIO *bio = BIO_new_mem_buf(publicKey.data(), (int) publicKey.size());
+    if (bio == nullptr) {
+        return 0;
+    }
+    RSA *rsa = PEM_read_bio_RSAPublicKey(bio, nullptr, nullptr, nullptr);
+    if (rsa == nullptr) {
+        BIO_free(bio);
+        bio = BIO_new_mem_buf(publicKey.data(), (int) publicKey.size());
+        if (bio == nullptr) {
+            return 0;
+        }
+        rsa = PEM_read_bio_RSA_PUBKEY(bio, nullptr, nullptr, nullptr);
+    }
+    if (rsa == nullptr) {
+        BIO_free(bio);
+        return 0;
+    }
+
+    const BIGNUM *n = nullptr;
+    const BIGNUM *e = nullptr;
+    RSA_get0_key(rsa, &n, &e, nullptr);
+    if (n == nullptr || e == nullptr) {
+        RSA_free(rsa);
+        BIO_free(bio);
+        return 0;
+    }
+
+    std::vector<unsigned char> serialized;
+    auto appendTlBytes = [&serialized](const BIGNUM *number) -> bool {
+        const int size = BN_num_bytes(number);
+        if (size <= 0) {
+            return false;
+        }
+        std::vector<unsigned char> bytes(size);
+        if (BN_bn2bin(number, bytes.data()) != size) {
+            return false;
+        }
+        const auto length = (uint32_t) bytes.size();
+        if (length < 254) {
+            serialized.push_back((unsigned char) length);
+        } else {
+            serialized.push_back(0xfe);
+            serialized.push_back((unsigned char) (length & 0xff));
+            serialized.push_back((unsigned char) ((length >> 8) & 0xff));
+            serialized.push_back((unsigned char) ((length >> 16) & 0xff));
+        }
+        serialized.insert(serialized.end(), bytes.begin(), bytes.end());
+        const auto total = (length < 254 ? 1u : 4u) + length;
+        const auto padding = (4u - (total % 4u)) % 4u;
+        serialized.insert(serialized.end(), padding, 0);
+        return true;
+    };
+    if (!appendTlBytes(n) || !appendTlBytes(e)) {
+        RSA_free(rsa);
+        BIO_free(bio);
+        return 0;
+    }
+
+    unsigned char digest[SHA_DIGEST_LENGTH];
+    SHA1(serialized.data(), serialized.size(), digest);
+    // Telegram treats the last 8 bytes of the digest as a little-endian
+    // integer: it is what the hardcoded key literals above encode, and what
+    // the server sends in `resPQ.server_public_key_fingerprints`, which is
+    // read as a TL `long`. Building it big-endian here would never match.
+    uint64_t fingerprint = 0;
+    for (int i = 19; i >= 12; i--) {
+        fingerprint = (fingerprint << 8) | digest[i];
+    }
+    RSA_free(rsa);
+    BIO_free(bio);
+    return fingerprint;
+}
+
 void Handshake::processHandshakeResponse(TLObject *message, int64_t messageId) {
     if (handshakeState == 0) {
         return;
@@ -362,8 +436,19 @@ void Handshake::processHandshakeResponse_resPQ(TLObject *message, int64_t messag
                 }
             }
         } else {
+            auto &connectionsManager = ConnectionsManager::getInstance(currentDatacenter->instanceNum);
+            if (connectionsManager.isPrivateServerEnabled()) {
+                const std::string privatePublicKey = connectionsManager.getPrivateServerPublicKey();
+                const uint64_t privateFingerprint = computeRsaKeyFingerprint(privatePublicKey);
+                if (privateFingerprint != 0) {
+                    serverPublicKeys.clear();
+                    serverPublicKeysFingerprints.clear();
+                    serverPublicKeys.emplace_back(privatePublicKey);
+                    serverPublicKeysFingerprints.push_back(privateFingerprint);
+                }
+            }
             if (serverPublicKeys.empty()) {
-                if (ConnectionsManager::getInstance(currentDatacenter->instanceNum).testBackend) {
+                if (connectionsManager.testBackend) {
                     serverPublicKeys.emplace_back("-----BEGIN RSA PUBLIC KEY-----\n"
                                                   "MIIBCgKCAQEAyMEdY1aR+sCR3ZSJrtztKTKqigvO/vBfqACJLZtS7QMgCGXJ6XIR\n"
                                                   "yy7mx66W0/sOFa7/1mAZtEoIokDP3ShoqF4fVNb6XeqgQfaUHd8wJpDWHcR2OFwv\n"

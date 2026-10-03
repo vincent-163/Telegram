@@ -58,6 +58,9 @@ public:
     void cancelRequestsForGuid(int32_t guid);
     void bindRequestToGuid(int32_t requestToken, int32_t guid);
     void applyDatacenterAddress(uint32_t datacenterId, std::string ipAddress, uint32_t port);
+    void setPrivateServer(bool enabled, std::string address, uint16_t port, std::string publicKey);
+    bool isPrivateServerEnabled();
+    std::string getPrivateServerPublicKey();
     void setDelegate(ConnectiosManagerDelegate *connectiosManagerDelegate);
     ConnectionState getConnectionState();
     void setUserId(int64_t userId);
@@ -116,6 +119,7 @@ private:
 
     void checkPendingTasks();
     void scheduleTask(std::function<void()> task);
+    void applyPrivateServerInternal();
     void scheduleEvent(EventObject *eventObject, uint32_t time);
     void removeEvent(EventObject *eventObject);
     void onConnectionClosed(Connection *connection, int reason);
@@ -196,6 +200,11 @@ private:
 
     pthread_t networkThread;
     pthread_mutex_t mutex;
+    pthread_mutex_t privateServerMutex;
+    bool privateServerEnabled = false;
+    std::string privateServerAddress;
+    uint16_t privateServerPort = 0;
+    std::string privateServerPublicKey;
     std::queue<std::function<void()>> pendingTasks;
     struct epoll_event *epollEvents;
     timespec timeSpec;

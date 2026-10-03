@@ -34,6 +34,7 @@ public:
     void onHandshakeConnectionConnected();
     void onHandshakeConnectionClosed();
     static void cleanupServerKeys();
+    static uint64_t computeRsaKeyFingerprint(const std::string &publicKey);
     HandshakeType getType();
     ByteArray *getPendingAuthKey();
     int64_t getPendingAuthKeyId();

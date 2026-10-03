@@ -83,6 +83,7 @@ import android.view.animation.AnimationUtils;
 import android.view.animation.Interpolator;
 import android.view.inputmethod.EditorInfo;
 import android.widget.AdapterView;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
@@ -2012,6 +2013,91 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
                 .show();
         }
 
+        private void showPrivateServerDialog() {
+            Context dialogContext = getParentActivity() != null ? getParentActivity() : getContext();
+            LinearLayout content = new LinearLayout(dialogContext);
+            content.setOrientation(LinearLayout.VERTICAL);
+            content.setPadding(dp(20), dp(8), dp(20), 0);
+
+            CheckBox enabledField = new CheckBox(dialogContext);
+            enabledField.setText("Use private Telegram server");
+            enabledField.setChecked(SharedConfig.privateServerEnabled);
+            content.addView(enabledField, LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+
+            TextView addressLabel = new TextView(dialogContext);
+            addressLabel.setText("Server IP address");
+            addressLabel.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText6));
+            content.addView(addressLabel, LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+
+            EditText addressField = new EditText(dialogContext);
+            addressField.setSingleLine(true);
+            addressField.setHint("192.168.37.27");
+            addressField.setText(SharedConfig.privateServerAddress);
+            content.addView(addressField, LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+
+            TextView portLabel = new TextView(dialogContext);
+            portLabel.setText("MTProto port");
+            portLabel.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText6));
+            content.addView(portLabel, LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+
+            EditText portField = new EditText(dialogContext);
+            portField.setSingleLine(true);
+            portField.setInputType(InputType.TYPE_CLASS_NUMBER);
+            portField.setText(String.valueOf(SharedConfig.privateServerPort));
+            content.addView(portField, LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+
+            TextView keyLabel = new TextView(dialogContext);
+            keyLabel.setText("Server RSA public key (PEM)");
+            keyLabel.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText6));
+            content.addView(keyLabel, LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+
+            EditText keyField = new EditText(dialogContext);
+            keyField.setMinLines(8);
+            keyField.setMaxLines(16);
+            keyField.setGravity(Gravity.TOP | Gravity.START);
+            keyField.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+            keyField.setText(SharedConfig.privateServerPublicKey);
+            content.addView(keyField, LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+
+            AlertDialog.Builder builder = new AlertDialog.Builder(dialogContext)
+                    .setTitle("Private server")
+                    .setView(content)
+                    .setPositiveButton(getString(R.string.OK), (dialog, which) -> {
+                        String address = addressField.getText().toString().trim();
+                        String key = keyField.getText().toString().trim();
+                        int port;
+                        try {
+                            port = Integer.parseInt(portField.getText().toString().trim());
+                        } catch (Exception e) {
+                            port = 0;
+                        }
+                        if (enabledField.isChecked() && (address.isEmpty() || port < 1 || port > 65535 || !key.contains("-----BEGIN") || !key.contains("-----END"))) {
+                            Toast.makeText(dialogContext, "Enter a valid IP, port, and RSA PEM public key.", Toast.LENGTH_LONG).show();
+                            return;
+                        }
+                        SharedConfig.privateServerEnabled = enabledField.isChecked();
+                        SharedConfig.privateServerAddress = address;
+                        SharedConfig.privateServerPort = port > 0 ? port : 24443;
+                        SharedConfig.privateServerPublicKey = key;
+                        SharedConfig.saveConfig();
+                        getConnectionsManager().applyPrivateServer();
+                        BulletinFactory.of(slideViewsContainer, null).createSimpleBulletin(R.raw.contacts_sync_on, "Private server settings applied.").show();
+                    })
+                    .setNegativeButton(getString(R.string.Cancel), null);
+            if (SharedConfig.privateServerEnabled) {
+                builder.setNeutralButton("Clear", (dialog, which) -> {
+                    SharedConfig.privateServerEnabled = false;
+                    SharedConfig.privateServerAddress = "";
+                    SharedConfig.privateServerPort = 24443;
+                    SharedConfig.privateServerPublicKey = "";
+                    SharedConfig.saveConfig();
+                    getConnectionsManager().applyPrivateServer();
+                    BulletinFactory.of(slideViewsContainer, null).createSimpleBulletin(R.raw.contacts_sync_off, "Private server settings cleared.").show();
+                });
+            }
+            builder.show();
+        }
+
         public PhoneView(Context context) {
             super(context);
 
@@ -2495,6 +2581,17 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
                     }
                     loadCountries();
                 });
+            }
+
+            if (activityMode == MODE_LOGIN) {
+                TextView privateServerButton = new TextView(context);
+                privateServerButton.setText("Private server settings >");
+                privateServerButton.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14);
+                privateServerButton.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlueText4));
+                privateServerButton.setGravity(Gravity.CENTER);
+                privateServerButton.setPadding(dp(16), dp(6), dp(16), dp(6));
+                privateServerButton.setOnClickListener(v -> showPrivateServerDialog());
+                addView(privateServerButton, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER_HORIZONTAL, 16, 4, 16, 0));
             }
 
             if (bottomMargin > 0 && !AndroidUtilities.isSmallScreen()) {

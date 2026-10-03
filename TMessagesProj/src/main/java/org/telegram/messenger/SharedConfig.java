@@ -276,6 +276,11 @@ public class SharedConfig {
     private static HashMap<String, String> passportConfigMap;
     public static int passportConfigHash;
 
+    public static boolean privateServerEnabled;
+    public static String privateServerAddress = "";
+    public static int privateServerPort = 24443;
+    public static String privateServerPublicKey = "";
+
     private static boolean configLoaded;
     private static final Object sync = new Object();
     private static final Object localIdSync = new Object();
@@ -470,6 +475,10 @@ public class SharedConfig {
                 editor.putString("storageCacheDir", !TextUtils.isEmpty(storageCacheDir) ? storageCacheDir : "");
                 editor.putBoolean("proxyRotationEnabled", proxyRotationEnabled);
                 editor.putInt("proxyRotationTimeout", proxyRotationTimeout);
+                editor.putBoolean("privateServerEnabled", privateServerEnabled);
+                editor.putString("privateServerAddress", privateServerAddress);
+                editor.putInt("privateServerPort", privateServerPort);
+                editor.putString("privateServerPublicKey", privateServerPublicKey);
 
                 if (pendingAppUpdate != null) {
                     try {
@@ -537,6 +546,10 @@ public class SharedConfig {
             storageCacheDir = preferences.getString("storageCacheDir", null);
             proxyRotationEnabled = preferences.getBoolean("proxyRotationEnabled", false);
             proxyRotationTimeout = preferences.getInt("proxyRotationTimeout", ProxyRotationController.DEFAULT_TIMEOUT_INDEX);
+            privateServerEnabled = preferences.getBoolean("privateServerEnabled", false);
+            privateServerAddress = preferences.getString("privateServerAddress", "");
+            privateServerPort = preferences.getInt("privateServerPort", 24443);
+            privateServerPublicKey = preferences.getString("privateServerPublicKey", "");
             String authKeyString = preferences.getString("pushAuthKey", null);
             if (!TextUtils.isEmpty(authKeyString)) {
                 pushAuthKey = Base64.decode(authKeyString, Base64.DEFAULT);

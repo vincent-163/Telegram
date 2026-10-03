@@ -121,6 +121,7 @@ ConnectionsManager::ConnectionsManager(int32_t instance) {
     }
 
     pthread_mutex_init(&mutex, nullptr);
+    pthread_mutex_init(&privateServerMutex, nullptr);
 }
 
 ConnectionsManager::~ConnectionsManager() {
@@ -133,6 +134,7 @@ ConnectionsManager::~ConnectionsManager() {
         pipeFd = nullptr;
     }
     pthread_mutex_destroy(&mutex);
+    pthread_mutex_destroy(&privateServerMutex);
 }
 
 ConnectionsManager& ConnectionsManager::getInstance(int32_t instanceNum) {
@@ -311,6 +313,98 @@ void ConnectionsManager::scheduleTask(std::function<void()> task) {
     pendingTasks.push(task);
     pthread_mutex_unlock(&mutex);
     wakeup();
+}
+
+void ConnectionsManager::setPrivateServer(bool enabled, std::string address, uint16_t port, std::string publicKey) {
+    pthread_mutex_lock(&privateServerMutex);
+    privateServerEnabled = enabled;
+    privateServerAddress = std::move(address);
+    privateServerPort = port;
+    privateServerPublicKey = std::move(publicKey);
+    pthread_mutex_unlock(&privateServerMutex);
+    scheduleTask([this] {
+        applyPrivateServerInternal();
+    });
+}
+
+bool ConnectionsManager::isPrivateServerEnabled() {
+    pthread_mutex_lock(&privateServerMutex);
+    const bool enabled = privateServerEnabled;
+    pthread_mutex_unlock(&privateServerMutex);
+    return enabled;
+}
+
+std::string ConnectionsManager::getPrivateServerPublicKey() {
+    pthread_mutex_lock(&privateServerMutex);
+    const std::string publicKey = privateServerPublicKey;
+    pthread_mutex_unlock(&privateServerMutex);
+    return publicKey;
+}
+
+void ConnectionsManager::applyPrivateServerInternal() {
+    bool enabled;
+    std::string address;
+    uint16_t port;
+    pthread_mutex_lock(&privateServerMutex);
+    enabled = privateServerEnabled;
+    address = privateServerAddress;
+    port = privateServerPort;
+    pthread_mutex_unlock(&privateServerMutex);
+
+    Handshake::cleanupServerKeys();
+    if (!enabled || address.empty() || port == 0) {
+        if (!address.empty()) {
+            bool reconnect = false;
+            for (auto &item : datacenters) {
+                TcpAddress *current = item.second->getCurrentAddress(TcpAddressFlagIpv6);
+                TcpAddress *currentIpv4 = item.second->getCurrentAddress(0);
+                if ((current != nullptr && current->address == address && current->port == port) ||
+                    (currentIpv4 != nullptr && currentIpv4->address == address && currentIpv4->port == port)) {
+                    reconnect = true;
+                    item.second->clearAuthKey(HandshakeTypeAll);
+                }
+            }
+            if (reconnect) {
+                saveConfig();
+            }
+        }
+        updateDcSettings(0, false, false);
+        return;
+    }
+
+    ipStrategy = USE_IPV4_ONLY;
+    initDatacenters();
+    std::vector<TcpAddress> privateAddress;
+    privateAddress.emplace_back(address, port, 0, "");
+    std::vector<TcpAddress> emptyAddresses;
+    bool endpointChanged = false;
+    for (uint32_t datacenterId = 1; datacenterId <= 5; datacenterId++) {
+        Datacenter *datacenter = getDatacenterWithId(datacenterId);
+        if (datacenter == nullptr) {
+            datacenter = new Datacenter(instanceNum, datacenterId);
+            datacenters[datacenterId] = datacenter;
+        }
+        TcpAddress *current = datacenter->getCurrentAddress(0);
+        if (current == nullptr || current->address != address || current->port != port) {
+            endpointChanged = true;
+        }
+        datacenter->suspendConnections(true);
+        datacenter->replaceAddresses(privateAddress, 0);
+        datacenter->replaceAddresses(privateAddress, TcpAddressFlagDownload);
+        datacenter->replaceAddresses(emptyAddresses, TcpAddressFlagIpv6);
+        datacenter->replaceAddresses(emptyAddresses, TcpAddressFlagIpv6 | TcpAddressFlagDownload);
+        datacenter->resetAddressAndPortNum();
+        if (endpointChanged) {
+            datacenter->clearAuthKey(HandshakeTypeAll);
+        }
+    }
+    if (endpointChanged) {
+        saveConfig();
+    }
+    Datacenter *currentDatacenter = getDatacenterWithId(currentDatacenterId == 0 ? DEFAULT_DATACENTER_ID : currentDatacenterId);
+    if (currentDatacenter != nullptr && !currentDatacenter->hasAuthKey(ConnectionTypeGeneric, 0)) {
+        currentDatacenter->beginHandshake(HandshakeTypeAll, true);
+    }
 }
 
 void ConnectionsManager::scheduleEvent(EventObject *eventObject, uint32_t time) {
@@ -3322,6 +3416,14 @@ inline std::string decodeSecret(std::string secret) {
 }
 
 void ConnectionsManager::updateDcSettings(uint32_t dcNum, bool workaround, bool ifLoadingTryAgain) {
+    if (isPrivateServerEnabled()) {
+        if (workaround) {
+            updatingDcSettingsWorkaround = false;
+        } else if (updatingDcSettings) {
+            updatingDcSettings = false;
+        }
+        return;
+    }
     if (workaround) {
         if (updatingDcSettingsWorkaround) {
             return;
@@ -3513,6 +3615,9 @@ void ConnectionsManager::authorizedOnMovingDatacenter() {
 
 void ConnectionsManager::applyDatacenterAddress(uint32_t datacenterId, std::string ipAddress, uint32_t port) {
     scheduleTask([&, datacenterId, ipAddress, port] {
+        if (isPrivateServerEnabled()) {
+            return;
+        }
         Datacenter *datacenter = getDatacenterWithId(datacenterId);
         if (datacenter != nullptr) {
             std::vector<TcpAddress> addresses;
@@ -3574,6 +3679,10 @@ inline bool checkPhoneByPrefixesRules(std::string phone, std::string rules) {
 }
 
 void ConnectionsManager::applyDnsConfig(NativeByteBuffer *buffer, std::string phone, int32_t date) {
+    if (isPrivateServerEnabled()) {
+        buffer->reuse();
+        return;
+    }
     scheduleTask([&, buffer, phone, date] {
         int32_t realDate = date;
         if (LOGS_ENABLED) DEBUG_D("trying to decrypt config %d", requestingSecondAddress);
