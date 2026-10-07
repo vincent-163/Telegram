@@ -1,0 +1,77 @@
+name: Android CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout.
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Java.
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle.
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install native toolchain.
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" \
+            "ndk;27.2.12479018" \
+            "cmake;3.22.1" \
+            "platform-tools" >/dev/null
+
+      - name: Build release APK.
+        run: ./gradlew --no-daemon :TMessagesProj_App:assembleAfatRelease
+
+      - name: Collect artifacts.
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          cp TMessagesProj_App/build/outputs/apk/afat/release/app.apk \
+            "artifacts/Telegram-${GITHUB_SHA::8}.apk"
+          (cd artifacts && sha256sum ./*.apk > SHA256SUMS.txt)
+          ls -lh artifacts
+
+      - name: Upload artifact.
+        uses: actions/upload-artifact@v4
+        with:
+          name: telegram-android-${{ github.sha }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish release.
+        if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="build-${GITHUB_SHA::8}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" artifacts/* --clobber
+          else
+            gh release create "$tag" artifacts/* \
+              --target "$GITHUB_SHA" \
+              --title "Android build ${GITHUB_SHA::8}" \
+              --notes "Automated build of ${GITHUB_SHA}." \
+              --latest
+          fi
