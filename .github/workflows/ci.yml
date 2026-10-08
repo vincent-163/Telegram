@@ -29,6 +29,14 @@ jobs:
       - name: Set up Gradle.
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Read official client version.
+        id: version
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^APP_VERSION_NAME=//p' gradle.properties | head -n 1)"
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: Install native toolchain.
         run: |
           set -euo pipefail
@@ -43,11 +51,13 @@ jobs:
         run: ./gradlew --no-daemon :TMessagesProj_App:assembleAfatRelease
 
       - name: Collect artifacts.
+        id: artifacts
         run: |
           set -euo pipefail
           mkdir -p artifacts
+          version="${{ steps.version.outputs.version }}"
           cp TMessagesProj_App/build/outputs/apk/afat/release/app.apk \
-            "artifacts/Telegram-${GITHUB_SHA::8}.apk"
+            "artifacts/Telegram-${version}-${GITHUB_SHA::8}.apk"
           (cd artifacts && sha256sum ./*.apk > SHA256SUMS.txt)
           ls -lh artifacts
 
@@ -65,13 +75,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag="build-${GITHUB_SHA::8}"
+          version="${{ steps.version.outputs.version }}"
+          tag="android-${version}-${GITHUB_SHA::8}"
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" artifacts/* --clobber
           else
             gh release create "$tag" artifacts/* \
               --target "$GITHUB_SHA" \
-              --title "Android build ${GITHUB_SHA::8}" \
-              --notes "Automated build of ${GITHUB_SHA}." \
+              --title "Telegram Android ${version} (build ${GITHUB_SHA::8})" \
+              --notes "Official client version ${version}; automated build of ${GITHUB_SHA}." \
               --latest
           fi
